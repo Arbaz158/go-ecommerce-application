@@ -4,17 +4,15 @@ import (
 	"errors"
 	"log"
 
-	"github.com/go-ecommerce-application/services/auth-service/internal/authentication"
-	"github.com/go-ecommerce-application/services/auth-service/internal/dto"
+	"github.com/go-ecommerce-application/pkg/auth"
 	"github.com/go-ecommerce-application/services/auth-service/internal/models"
 	"github.com/go-ecommerce-application/services/auth-service/internal/repository"
-	"github.com/go-ecommerce-application/services/auth-service/internal/utils"
 	"github.com/google/uuid"
 )
 
 type AuthService interface {
 	Signup(authData models.AuthUser) error
-	Login(username, password string) (dto.LoginResponse, error)
+	Login(username, password string) (auth.LoginResponse, error)
 	RefreshToken(refreshToken string) (newAccessToken string, err error)
 	Logout(userID string) error
 }
@@ -35,7 +33,7 @@ func (s *authService) Signup(authData models.AuthUser) error {
 		return err
 	}
 	authData.Id = uuid.String()
-	hashPassword, err := utils.HashPassword(authData.Password)
+	hashPassword, err := auth.HashPassword(authData.Password)
 	if err != nil {
 		return err
 	}
@@ -49,19 +47,19 @@ func (s *authService) Signup(authData models.AuthUser) error {
 	return nil
 }
 
-func (s *authService) Login(email, password string) (dto.LoginResponse, error) {
+func (s *authService) Login(email, password string) (auth.LoginResponse, error) {
 	// Implement login logic here
-	var loginResponse dto.LoginResponse
-	var user dto.User
+	var loginResponse auth.LoginResponse
+	var user auth.User
 	if email == "" || password == "" {
-		return dto.LoginResponse{}, errors.New("Email or Password can not be empty")
+		return auth.LoginResponse{}, errors.New("Email or Password can not be empty")
 	}
 	userData, err := s.authRepository.GetUserByEmail(email)
 	if err != nil {
-		return dto.LoginResponse{}, err
+		return auth.LoginResponse{}, err
 	}
 	if userData.Status != "active" {
-		return dto.LoginResponse{}, errors.New("User is not active")
+		return auth.LoginResponse{}, errors.New("User is not active")
 	}
 	user.Id = userData.Id
 	user.Email = userData.Email
@@ -69,13 +67,13 @@ func (s *authService) Login(email, password string) (dto.LoginResponse, error) {
 	user.Status = userData.Status
 	loginResponse.User = user
 
-	if !utils.CheckPasswordHash(password, userData.Password) {
-		return dto.LoginResponse{}, errors.New("email or password is incorrect")
+	if !auth.CheckPasswordHash(password, userData.Password) {
+		return auth.LoginResponse{}, errors.New("email or password is incorrect")
 	}
-	accessToken, refreshToken, _, _, err := authentication.GenerateTokens(userData.Id, userData.Role)
+	accessToken, refreshToken, _, _, err := auth.GenerateTokens(userData.Id, userData.Role)
 	if err != nil {
 		log.Println("Error while generating login token :", err)
-		return dto.LoginResponse{}, err
+		return auth.LoginResponse{}, err
 	}
 
 	loginResponse.AccessToken = accessToken

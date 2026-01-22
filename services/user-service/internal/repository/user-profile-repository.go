@@ -24,6 +24,9 @@ func NewUserProfileRepository(db *gorm.DB) UserProfileRepository {
 func (r *userProfileRepository) GetUserProfileByID(id uint) (*models.UserProfile, error) {
 	var userProfile models.UserProfile
 	if err := r.db.First(&userProfile, id).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return nil, nil
+		}
 		return nil, err
 	}
 	return &userProfile, nil

@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/DATA-DOG/go-sqlmock"
+	"github.com/go-ecommerce-application/services/user-service/internal/models"
 	"gorm.io/driver/mysql"
 	"gorm.io/gorm"
 )
@@ -61,7 +62,7 @@ func TestGetMe_EmptyResult(t *testing.T) {
 
 	expectedRows := sqlmock.NewRows([]string{"id", "name", "phone", "email"})
 
-	mock.ExpectQuery(regexp.QuoteMeta("SELECT * FROM `user_profiles` WHERE `user_profiles`.`id` = ? ORDER BY `user_profiles`.`id` LIMIT ? ")).
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT * FROM `user_profiles` WHERE `user_profiles`.`id` = ? ORDER BY `user_profiles`.`id` LIMIT ?")).
 		WithArgs(1, 1).WillReturnRows(expectedRows)
 
 	repo.db = gormDB
@@ -75,4 +76,82 @@ func TestGetMe_EmptyResult(t *testing.T) {
 		t.Fatalf("expected empty profile but got %v", profile)
 	}
 
+}
+
+func TestSaveUserAdress_Success(t *testing.T) {
+	db, mock, gormDB := setupMockDB(t)
+	defer db.Close()
+
+	repo := &userProfileRepository{}
+
+	mock.ExpectBegin()
+	mock.ExpectExec(regexp.QuoteMeta("INSERT INTO `addresses` (`user_id`,`street`,`city`,`state`,`postal_code`,`created_at`,`updated_at`) VALUES (?,?,?,?,?,?,?)")).
+		WithArgs(1, "123 Main St", "Cityville", "Stateville", "12345", sqlmock.AnyArg(), sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectCommit()
+
+	repo.db = gormDB
+
+	address := &models.Address{
+		UserID:     1,
+		Street:     "123 Main St",
+		City:       "Cityville",
+		State:      "Stateville",
+		PostalCode: "12345",
+	}
+
+	err := repo.SaveAddress(address)
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+}
+
+func TestGetUserAddresses_Success(t *testing.T) {
+	db, mock, gormDB := setupMockDB(t)
+	defer db.Close()
+
+	repo := &userProfileRepository{}
+
+	expectedRows := sqlmock.NewRows([]string{"id", "user_id", "street", "city", "state", "postal_code", "created_at", "updated_at"}).
+		AddRow(1, 1, "123 Main St", "Cityville", "Stateville", "12345", 1769077351, 1769077351).
+		AddRow(2, 1, "456 Side St", "Townsville", "Regionville", "67890", 1769077351, 1769077351)
+
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT * FROM `addresses` WHERE user_id = ?")).
+		WithArgs(1).
+		WillReturnRows(expectedRows)
+
+	repo.db = gormDB
+
+	addresses, err := repo.GetUserAddresses(1)
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+
+	if len(addresses) != 2 {
+		t.Fatalf("expected 2 addresses, got %d", len(addresses))
+	}
+}
+
+func TestGetUserAddresses_EmptyResult(t *testing.T) {
+	db, mock, gormDB := setupMockDB(t)
+	defer db.Close()
+
+	repo := &userProfileRepository{}
+
+	expectedRows := sqlmock.NewRows([]string{"id", "user_id", "street", "city", "state", "zip_code", "country"})
+
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT * FROM `addresses` WHERE user_id = ?")).
+		WithArgs(1).
+		WillReturnRows(expectedRows)
+
+	repo.db = gormDB
+
+	addresses, err := repo.GetUserAddresses(1)
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+
+	if len(addresses) != 0 {
+		t.Fatalf("expected 0 addresses, got %d", len(addresses))
+	}
 }

@@ -14,4 +14,6 @@ type Address struct {
 	City       string `gorm:"size:100;not null"`
 	State      string `gorm:"size:100;not null"`
 	PostalCode string `gorm:"size:20;not null"`
+	CreatedAt  int64  `gorm:"autoCreateTime"`
+	UpdatedAt  int64  `gorm:"autoUpdateTime"`
 }

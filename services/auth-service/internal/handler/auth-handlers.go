@@ -2,7 +2,7 @@ package handler
 
 import (
 	"github.com/gin-gonic/gin"
-	"github.com/go-ecommerce-application/services/auth-service/internal/dto"
+	"github.com/go-ecommerce-application/pkg/auth"
 	"github.com/go-ecommerce-application/services/auth-service/internal/models"
 	"github.com/go-ecommerce-application/services/auth-service/internal/service"
 )
@@ -30,7 +30,7 @@ func (h *AuthHandler) SignupHandler(c *gin.Context) {
 }
 
 func (h *AuthHandler) LoginHandler(c *gin.Context) {
-	var loginData dto.LoginRequest
+	var loginData auth.LoginRequest
 	err := c.ShouldBindJSON(&loginData)
 	if err != nil {
 		c.JSON(400, gin.H{

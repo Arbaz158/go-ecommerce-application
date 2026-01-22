@@ -13,9 +13,8 @@ import (
 )
 
 type Config struct {
-	Enabled bool
-	Addr    string
-	// Optional: enable file-based profiling for CPU, memory, goroutine
+	Enabled            bool
+	Addr               string
 	EnableFileProfiles bool
 	ProfileDir         string // Directory to save profile files
 }
@@ -25,23 +24,18 @@ func Start(cfg Config) {
 		return
 	}
 
-	// Start HTTP pprof server
 	go startHTTPProfiling(cfg.Addr)
 
-	// Optional: Start file-based profiling for metrics collection
 	if cfg.EnableFileProfiles {
 		go startFileProfiles(cfg.ProfileDir)
 	}
 
-	// Start runtime metrics collection
 	go collectRuntimeMetrics()
 }
 
-// startHTTPProfiling starts the HTTP pprof server with all profiles exposed
 func startHTTPProfiling(addr string) {
 	log.Printf("[PROFILING] HTTP pprof server starting on http://%s/debug/pprof/\n", addr)
 
-	// Print available endpoints
 	printPprofEndpoints(addr)
 
 	if err := http.ListenAndServe(addr, nil); err != nil {
@@ -49,7 +43,6 @@ func startHTTPProfiling(addr string) {
 	}
 }
 
-// printPprofEndpoints shows all available profiling endpoints
 func printPprofEndpoints(addr string) {
 	endpoints := map[string]string{
 		"Heap (Memory)":    fmt.Sprintf("http://%s/debug/pprof/heap", addr),
@@ -69,15 +62,12 @@ func printPprofEndpoints(addr string) {
 	log.Println("\n=====================================")
 }
 
-// startFileProfiles creates CPU, memory, and goroutine profile files
 func startFileProfiles(profileDir string) {
-	// Create profile directory if it doesn't exist
 	if err := os.MkdirAll(profileDir, os.ModePerm); err != nil {
 		log.Printf("[PROFILING] Error creating profile directory: %v\n", err)
 		return
 	}
 
-	// CPU Profile (30 seconds)
 	go func() {
 		cpuFile := fmt.Sprintf("%s/cpu_%d.prof", profileDir, time.Now().Unix())
 		f, err := os.Create(cpuFile)
@@ -99,7 +89,6 @@ func startFileProfiles(profileDir string) {
 		log.Printf("[PROFILING] CPU profile saved: %s\n", cpuFile)
 	}()
 
-	// Memory Profile (after 30 seconds)
 	go func() {
 		time.Sleep(40 * time.Second)
 		memFile := fmt.Sprintf("%s/mem_%d.prof", profileDir, time.Now().Unix())
@@ -118,7 +107,6 @@ func startFileProfiles(profileDir string) {
 		log.Printf("[PROFILING] Memory profile saved: %s\n", memFile)
 	}()
 
-	// Goroutine Profile
 	go func() {
 		time.Sleep(50 * time.Second)
 		grFile := fmt.Sprintf("%s/goroutine_%d.prof", profileDir, time.Now().Unix())
@@ -137,7 +125,6 @@ func startFileProfiles(profileDir string) {
 	}()
 }
 
-// collectRuntimeMetrics collects and logs runtime metrics every 10 seconds
 func collectRuntimeMetrics() {
 	ticker := time.NewTicker(10 * time.Second)
 	defer ticker.Stop()
@@ -156,12 +143,10 @@ func collectRuntimeMetrics() {
 	}
 }
 
-// bToMb converts bytes to megabytes
 func bToMb(b uint64) uint64 {
 	return b / 1024 / 1024
 }
 
-// EnableGCMetrics enables detailed GC metrics logging
 func EnableGCMetrics() {
 	debug.SetGCPercent(100) // Trigger GC when heap grows 100% larger
 	log.Println("[PROFILING] GC metrics enabled with 100% heap growth threshold")
