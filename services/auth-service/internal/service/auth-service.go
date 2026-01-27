@@ -1,10 +1,14 @@
 package service
 
 import (
+	"context"
 	"errors"
 	"log"
+	"time"
 
 	"github.com/go-ecommerce-application/pkg/auth"
+	"github.com/go-ecommerce-application/pkg/kafka/events"
+	"github.com/go-ecommerce-application/pkg/kafka/producer"
 	"github.com/go-ecommerce-application/services/auth-service/internal/models"
 	"github.com/go-ecommerce-application/services/auth-service/internal/repository"
 	"github.com/google/uuid"
@@ -19,11 +23,13 @@ type AuthService interface {
 
 type authService struct {
 	authRepository repository.AuthRepository
+	kafkaProducer  *producer.Producer
 }
 
-func NewAuthService(authRepository repository.AuthRepository) AuthService {
+func NewAuthService(authRepository repository.AuthRepository, kafkaProducer *producer.Producer) AuthService {
 	return &authService{
 		authRepository: authRepository,
+		kafkaProducer:  kafkaProducer,
 	}
 }
 
@@ -42,6 +48,30 @@ func (s *authService) Signup(authData models.AuthUser) error {
 	err = s.authRepository.CreateUser(authData)
 	if err != nil {
 		return err
+	}
+
+	// Publish UserSignedUp event to Kafka
+	if s.kafkaProducer != nil {
+		event := events.UserSignedUp{
+			EventType: events.UserSignedUpEvent,
+			EventID:   uuid.String(),
+			UserID:    authData.Id,
+			Email:     authData.Email,
+			FirstName: authData.FirstName,
+			LastName:  authData.LastName,
+			Timestamp: time.Now(),
+		}
+
+		eventJSON, err := event.ToJSON()
+		if err != nil {
+			log.Printf("error marshaling event: %v", err)
+		} else {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			if err := s.kafkaProducer.Publish(ctx, "user.events", authData.Id, eventJSON); err != nil {
+				log.Printf("error publishing event: %v", err)
+			}
+		}
 	}
 
 	return nil

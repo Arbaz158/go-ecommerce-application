@@ -21,9 +21,9 @@ func (h *UserProfileHandler) HealthCheck(c *gin.Context) {
 }
 
 func (h *UserProfileHandler) GetMe(c *gin.Context) {
-	userID := c.GetInt("userID")
+	userID := c.GetString("userID")
 
-	userProfile, err := h.userProfileService.GetUserProfile(userID)
+	userProfile, err := h.userProfileService.GetUserProfileByUserID(userID)
 	if err != nil {
 		c.JSON(500, gin.H{"error": "Failed to fetch user profile"})
 		return

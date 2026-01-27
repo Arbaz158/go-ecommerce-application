@@ -6,12 +6,15 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/joho/godotenv"
 
+	"github.com/go-ecommerce-application/pkg/kafka/config"
+	"github.com/go-ecommerce-application/pkg/kafka/producer"
 	"github.com/go-ecommerce-application/services/auth-service/internal/database"
 	"github.com/go-ecommerce-application/services/auth-service/internal/handler"
 	"github.com/go-ecommerce-application/services/auth-service/internal/repository"
@@ -28,7 +31,7 @@ func main() {
 
 	addr := os.Getenv("HTTP_ADDR")
 	if addr == "" {
-		addr = ":8080"
+		addr = ":7070"
 	}
 
 	// set Gin mode via env; default to release for production
@@ -40,9 +43,25 @@ func main() {
 
 	database.ConnectMySQL()
 
+	// Initialize Kafka producer
+	kafkaBrokers := strings.Split(os.Getenv("KAFKA_BROKERS"), ",")
+	if len(kafkaBrokers) == 0 || kafkaBrokers[0] == "" {
+		kafkaBrokers = []string{"localhost:9092"}
+	}
+	kafkaCfg := config.NewKafkaConfig(kafkaBrokers, "")
+	kafkaProducer, err := producer.NewProducer(kafkaCfg)
+	if err != nil {
+		log.Printf("failed to initialize kafka producer: %v (continuing without kafka)", err)
+	}
+	defer func() {
+		if kafkaProducer != nil {
+			kafkaProducer.Close()
+		}
+	}()
+
 	// build dependencies
 	repo := repository.NewAuthRepository()
-	svc := service.NewAuthService(repo)
+	svc := service.NewAuthService(repo, kafkaProducer)
 	h := handler.NewAuthHandler(svc)
 
 	// router and middleware

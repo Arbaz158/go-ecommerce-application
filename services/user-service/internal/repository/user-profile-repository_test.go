@@ -35,22 +35,22 @@ func TestGetMe_Success(t *testing.T) {
 
 	repo := &userProfileRepository{}
 
-	expectedRows := sqlmock.NewRows([]string{"id", "name", "phone", "email"}).
-		AddRow(1, "John Doe", "123-456-7890", "john@gmail.com")
+	expectedRows := sqlmock.NewRows([]string{"id", "user_id", "email", "first_name", "last_name", "contact_number"}).
+		AddRow(1, "ewuhiwj23200", "john@gmail.com", "John", "Doe", "123-456-7890")
 
-	mock.ExpectQuery(regexp.QuoteMeta("SELECT * FROM `user_profiles` WHERE `user_profiles`.`id` = ? ORDER BY `user_profiles`.`id` LIMIT ?")).
-		WithArgs(1, 1).
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT * FROM `user_profiles` WHERE user_id = ? ORDER BY `user_profiles`.`id` LIMIT ?")).
+		WithArgs("ewuhiwj23200", 1).
 		WillReturnRows(expectedRows)
 
 	repo.db = gormDB
 
-	profile, err := repo.GetUserProfileByID(1)
+	profile, err := repo.GetUserProfileByUserID("ewuhiwj23200")
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
 
-	if profile.Name != "John Doe" || profile.Email != "john@gmail.com" {
-		t.Fatalf("expected profile with name John Doe, got %v %v", profile.Name, profile.Email)
+	if profile.FirstName != "John" || profile.LastName != "Doe" {
+		t.Fatalf("expected profile with name John Doe, got %v %v", profile.FirstName, profile.LastName)
 	}
 }
 
@@ -60,14 +60,14 @@ func TestGetMe_EmptyResult(t *testing.T) {
 
 	repo := &userProfileRepository{}
 
-	expectedRows := sqlmock.NewRows([]string{"id", "name", "phone", "email"})
+	expectedRows := sqlmock.NewRows([]string{"id", "user_id", "email", "first_name", "last_name", "contact_number"})
 
-	mock.ExpectQuery(regexp.QuoteMeta("SELECT * FROM `user_profiles` WHERE `user_profiles`.`id` = ? ORDER BY `user_profiles`.`id` LIMIT ?")).
-		WithArgs(1, 1).WillReturnRows(expectedRows)
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT * FROM `user_profiles` WHERE user_id = ? ORDER BY `user_profiles`.`id` LIMIT ?")).
+		WithArgs("ewuhiwj23200", 1).WillReturnRows(expectedRows)
 
 	repo.db = gormDB
 
-	profile, err := repo.GetUserProfileByID(1)
+	profile, err := repo.GetUserProfileByUserID("ewuhiwj23200")
 	if err != nil {
 		t.Fatalf("expected no error got %v", err)
 	}

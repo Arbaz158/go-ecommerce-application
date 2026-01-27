@@ -9,22 +9,40 @@ import (
 	"testing"
 
 	"github.com/gin-gonic/gin"
+	"github.com/go-ecommerce-application/pkg/kafka/events"
 	"github.com/go-ecommerce-application/services/user-service/internal/models"
 )
 
 // MockUserProfileService is a mock implementation of UserProfileService
 type MockUserProfileService struct {
-	GetUserProfileFunc  func(id int) (*models.UserProfile, error)
-	SaveAddressFunc     func(address models.Address) error
-	GetUserAdressesFunc func(userId int) ([]models.Address, error)
+	GetUserProfileByUserIDFunc  func(userID string) (*models.UserProfile, error)
+	GetUserProfileFunc          func(id int) (*models.UserProfile, error)
+	HandleUserSignedUpEventFunc func(event *events.UserSignedUp) error
+	SaveAddressFunc             func(address models.Address) error
+	GetUserAdressesFunc         func(userId int) ([]models.Address, error)
 }
 
 // Implement service methods for the mock
+
+func (m *MockUserProfileService) GetUserProfileByUserID(userID string) (*models.UserProfile, error) {
+	if m.GetUserProfileByUserIDFunc != nil {
+		return m.GetUserProfileByUserIDFunc(userID)
+	}
+	return nil, nil
+}
+
 func (m *MockUserProfileService) GetUserProfile(id int) (*models.UserProfile, error) {
 	if m.GetUserProfileFunc != nil {
 		return m.GetUserProfileFunc(id)
 	}
 	return nil, nil
+}
+
+func (m *MockUserProfileService) HandleUserSignedUpEvent(event *events.UserSignedUp) error {
+	if m.HandleUserSignedUpEventFunc != nil {
+		return m.HandleUserSignedUpEventFunc(event)
+	}
+	return nil
 }
 
 func (m *MockUserProfileService) SaveAddress(address models.Address) error {
@@ -75,15 +93,16 @@ func TestGetMe_Success(t *testing.T) {
 	c, _ := gin.CreateTestContext(w)
 
 	expectedProfile := &models.UserProfile{
-		ID:    1,
-		Name:  "John Doe",
-		Phone: "123-456-7890",
-		Email: "john@example.com",
+		ID:        1,
+		UserID:    "user123",
+		FirstName: "John",
+		LastName:  "Doe",
+		Email:     "john@example.com",
 	}
 
 	mockService := &MockUserProfileService{
-		GetUserProfileFunc: func(id int) (*models.UserProfile, error) {
-			if id == 1 {
+		GetUserProfileByUserIDFunc: func(userID string) (*models.UserProfile, error) {
+			if userID == "user123" {
 				return expectedProfile, nil
 			}
 			return nil, nil
@@ -92,8 +111,8 @@ func TestGetMe_Success(t *testing.T) {
 
 	handler := NewUserProfileHandler(mockService)
 
-	// Set userID in context
-	c.Set("userID", 1)
+	// Set userID in context as string
+	c.Set("userID", "user123")
 	c.Request = httptest.NewRequest("GET", "/users/me", nil)
 
 	// Act
@@ -107,8 +126,8 @@ func TestGetMe_Success(t *testing.T) {
 	var response models.UserProfile
 	json.Unmarshal(w.Body.Bytes(), &response)
 
-	if response.Name != "John Doe" {
-		t.Errorf("expected name 'John Doe', got %s", response.Name)
+	if response.FirstName != "John" || response.LastName != "Doe" {
+		t.Errorf("expected name 'John Doe', got %s %s", response.FirstName, response.LastName)
 	}
 }
 
@@ -120,13 +139,13 @@ func TestGetMe_ServiceError(t *testing.T) {
 	c, _ := gin.CreateTestContext(w)
 
 	mockService := &MockUserProfileService{
-		GetUserProfileFunc: func(id int) (*models.UserProfile, error) {
+		GetUserProfileByUserIDFunc: func(userID string) (*models.UserProfile, error) {
 			return nil, errors.New("database error")
 		},
 	}
 
 	handler := NewUserProfileHandler(mockService)
-	c.Set("userID", 1)
+	c.Set("userID", "user123")
 	c.Request = httptest.NewRequest("GET", "/users/me", nil)
 
 	// Act

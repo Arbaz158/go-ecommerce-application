@@ -9,15 +9,25 @@ import (
 
 // MockUserProfileRepository is a mock implementation of UserProfileRepository
 type MockUserProfileRepository struct {
-	GetUserProfileByIDFunc func(id uint) (*models.UserProfile, error)
-	SaveAddressFunc        func(address *models.Address) error
-	GetUserAddressesFunc   func(userID uint) ([]models.Address, error)
+	GetUserProfileByIDFunc     func(id uint) (*models.UserProfile, error)
+	GetUserProfileByUserIDFunc func(userID string) (*models.UserProfile, error)
+	CreateUserProfileFunc      func(profile *models.UserProfile) error
+	SaveAddressFunc            func(address *models.Address) error
+	GetUserAddressesFunc       func(userID uint) ([]models.Address, error)
 }
 
 // Implement repository methods for the mock
-func (m *MockUserProfileRepository) GetUserProfileByID(id uint) (*models.UserProfile, error) {
-	if m.GetUserProfileByIDFunc != nil {
-		return m.GetUserProfileByIDFunc(id)
+
+func (m *MockUserProfileRepository) CreateUserProfile(profile *models.UserProfile) error {
+	if m.CreateUserProfileFunc != nil {
+		return m.CreateUserProfileFunc(profile)
+	}
+	return nil
+}
+
+func (m *MockUserProfileRepository) GetUserProfileByUserID(userID string) (*models.UserProfile, error) {
+	if m.GetUserProfileByUserIDFunc != nil {
+		return m.GetUserProfileByUserIDFunc(userID)
 	}
 	return nil, nil
 }
@@ -39,15 +49,16 @@ func (m *MockUserProfileRepository) GetUserAddresses(userID uint) ([]models.Addr
 func TestGetUserProfile_Success(t *testing.T) {
 	// Arrange - Setup
 	expectedProfile := &models.UserProfile{
-		ID:    1,
-		Name:  "John Doe",
-		Phone: "123-456-7890",
-		Email: "john@example.com",
+		ID:        1,
+		UserID:    "ewuhiwj23200",
+		FirstName: "John",
+		LastName:  "Doe",
+		Email:     "john@example.com",
 	}
 
 	mockRepo := &MockUserProfileRepository{
-		GetUserProfileByIDFunc: func(id uint) (*models.UserProfile, error) {
-			if id == 1 {
+		GetUserProfileByUserIDFunc: func(userID string) (*models.UserProfile, error) {
+			if userID == "ewuhiwj23200" {
 				return expectedProfile, nil
 			}
 			return nil, nil
@@ -57,7 +68,7 @@ func TestGetUserProfile_Success(t *testing.T) {
 	service := NewUserProfileService(mockRepo)
 
 	// Act - Execute
-	profile, err := service.GetUserProfile(1)
+	profile, err := service.GetUserProfileByUserID("ewuhiwj23200")
 
 	// Assert - Verify
 	if err != nil {
@@ -68,8 +79,8 @@ func TestGetUserProfile_Success(t *testing.T) {
 		t.Fatalf("expected profile, got nil")
 	}
 
-	if profile.Name != "John Doe" {
-		t.Errorf("expected name 'John Doe', got %s", profile.Name)
+	if profile.FirstName != "John" || profile.LastName != "Doe" {
+		t.Errorf("expected name 'John Doe', got %s %s", profile.FirstName, profile.LastName)
 	}
 
 	if profile.Email != "john@example.com" {
@@ -88,7 +99,7 @@ func TestGetUserProfile_NotFound(t *testing.T) {
 	service := NewUserProfileService(mockRepo)
 
 	// Act - Execute
-	profile, err := service.GetUserProfile(999)
+	profile, err := service.GetUserProfileByUserID("ewuhiwj23200")
 
 	// Assert - Verify
 	if err != nil {
@@ -104,7 +115,7 @@ func TestGetUserProfile_RepositoryError(t *testing.T) {
 	// Arrange - Setup
 	expectedError := errors.New("database connection failed")
 	mockRepo := &MockUserProfileRepository{
-		GetUserProfileByIDFunc: func(id uint) (*models.UserProfile, error) {
+		GetUserProfileByUserIDFunc: func(userID string) (*models.UserProfile, error) {
 			return nil, expectedError
 		},
 	}
@@ -112,7 +123,7 @@ func TestGetUserProfile_RepositoryError(t *testing.T) {
 	service := NewUserProfileService(mockRepo)
 
 	// Act - Execute
-	profile, err := service.GetUserProfile(1)
+	profile, err := service.GetUserProfileByUserID("ewuhiwj23200")
 
 	// Assert - Verify
 	if err == nil {

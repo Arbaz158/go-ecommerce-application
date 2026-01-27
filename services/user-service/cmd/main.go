@@ -1,16 +1,19 @@
 package main
 
 import (
-	"log"
-
 	"context"
+	"log"
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
+	"sync"
 	"syscall"
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/go-ecommerce-application/pkg/kafka/config"
+	"github.com/go-ecommerce-application/pkg/kafka/consumer"
 	"github.com/go-ecommerce-application/services/internal/profiling"
 	"github.com/go-ecommerce-application/services/user-service/internal/database"
 	"github.com/go-ecommerce-application/services/user-service/internal/handler"
@@ -26,9 +29,9 @@ func main() {
 		log.Println("No .env file found, using system environment variables")
 	}
 
-	addr := os.Getenv("HTTP_ADDR")
+	addr := os.Getenv("HTTP_ADDR_USER_SERVICE")
 	if addr == "" {
-		addr = ":8081"
+		addr = ":7071"
 	}
 
 	// set Gin mode via env; default to release for production
@@ -40,29 +43,48 @@ func main() {
 
 	db := database.ConnectMySQL()
 
-	// // Load JWT configuration
-	// jwtConfig, err := auth.LoadFromEnv()
-	// if err != nil {
-	// 	log.Fatalf("Failed to load JWT config: %v", err)
-	// }
-
 	// build dependencies
-	// tokenManager := auth.NewTokenManager(jwtConfig)
 	repo := repository.NewUserProfileRepository(db)
 	svc := service.NewUserProfileService(repo)
-	h := handler.NewUserProfileHandler(svc)
+	httpHandler := handler.NewUserProfileHandler(svc)
+	kafkaEventHandler := handler.NewKafkaEventHandler(svc)
 
 	// router and middleware
 	router := gin.New()
 	router.Use(gin.Logger(), gin.Recovery())
 
-	// register routes with JWT middleware
-	routes.RegisterUserProfileRoutes(router, h)
+	// register routes
+	routes.RegisterUserProfileRoutes(router, httpHandler)
 
 	profiling.Start(profiling.Config{
 		Enabled: os.Getenv("ENABLE_PPROF") == "true",
 		Addr:    ":6061",
 	})
+
+	// Initialize Kafka consumer
+	kafkaBrokers := strings.Split(os.Getenv("KAFKA_BROKERS"), ",")
+	if len(kafkaBrokers) == 0 || kafkaBrokers[0] == "" {
+		kafkaBrokers = []string{"localhost:9092"}
+	}
+	kafkaCfg := config.NewKafkaConfig(kafkaBrokers, "user-service-group")
+
+	consumerCtx, consumerCancel := context.WithCancel(context.Background())
+	var consumerWg sync.WaitGroup
+
+	// Start Kafka consumer in a goroutine
+	kafkaConsumer, err := consumer.NewConsumer(kafkaCfg, "user.events", kafkaEventHandler.HandleUserSignedUpEvent)
+	if err != nil {
+		log.Printf("failed to initialize kafka consumer: %v (continuing without kafka)", err)
+	} else {
+		consumerWg.Add(1)
+		go func() {
+			defer consumerWg.Done()
+			if err := kafkaConsumer.Start(consumerCtx); err != nil {
+				log.Printf("kafka consumer error: %v", err)
+			}
+		}()
+		log.Println("kafka consumer started")
+	}
 
 	srv := &http.Server{
 		Addr:    addr,
@@ -81,6 +103,13 @@ func main() {
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit
 	log.Println("shutting down server...")
+
+	// Stop Kafka consumer
+	if kafkaConsumer != nil {
+		consumerCancel()
+		consumerWg.Wait()
+		kafkaConsumer.Close()
+	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()

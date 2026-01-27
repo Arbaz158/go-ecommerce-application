@@ -1,10 +1,14 @@
 package models
 
 type UserProfile struct {
-	ID    uint   `gorm:"primaryKey"`
-	Name  string `gorm:"size:100;not null"`
-	Phone string `gorm:"size:15;unique;not null"`
-	Email string `gorm:"size:100;unique;not null"`
+	ID            uint   `gorm:"primaryKey"`
+	UserID        string `gorm:"size:100;unique;not null"`
+	Email         string `gorm:"size:100;unique;not null"`
+	FirstName     string `gorm:"size:100;not null"`
+	LastName      string `gorm:"size:100;not null"`
+	ContactNumber string `gorm:"size:20"`
+	CreatedAt     int64  `gorm:"autoCreateTime:milli"`
+	UpdatedAt     int64  `gorm:"autoUpdateTime:milli"`
 }
 
 type Address struct {

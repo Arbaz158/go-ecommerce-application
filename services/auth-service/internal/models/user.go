@@ -3,11 +3,13 @@ package models
 import "time"
 
 type AuthUser struct {
-	Id       string `gorm:"type:varchar(191);primaryKey"`
-	Email    string `json:"email"`
-	Password string `json:"password"`
-	Role     string `json:"role"`
-	Status   string `json:"status"`
+	Id        string `gorm:"type:varchar(191);primaryKey"`
+	Email     string `json:"email"`
+	Password  string `json:"password"`
+	FirstName string `json:"first_name"`
+	LastName  string `json:"last_name"`
+	Role      string `json:"role"`
+	Status    string `json:"status"`
 }
 
 type RefreshToken struct {
