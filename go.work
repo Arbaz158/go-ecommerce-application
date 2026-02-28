@@ -1,0 +1,9 @@
+go 1.25.1
+
+use (
+	./libs/auth
+	./libs/kafka
+	./libs/observability
+	./services/auth-service
+	./services/user-service
+)

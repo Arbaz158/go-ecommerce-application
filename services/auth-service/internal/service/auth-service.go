@@ -6,12 +6,13 @@ import (
 	"log"
 	"time"
 
-	"github.com/go-ecommerce-application/pkg/auth"
-	"github.com/go-ecommerce-application/pkg/kafka/events"
-	"github.com/go-ecommerce-application/pkg/kafka/producer"
-	"github.com/go-ecommerce-application/services/auth-service/internal/models"
+	"github.com/go-ecommerce-application/libs/auth"
+	"github.com/go-ecommerce-application/libs/kafka/events"
+	"github.com/go-ecommerce-application/libs/kafka/producer"
+	"github.com/go-ecommerce-application/services/auth-service/internal/domain/models"
 	"github.com/go-ecommerce-application/services/auth-service/internal/repository"
 	"github.com/google/uuid"
+	"gorm.io/gorm"
 )
 
 type AuthService interface {
@@ -86,7 +87,15 @@ func (s *authService) Login(email, password string) (auth.LoginResponse, error) 
 	}
 	userData, err := s.authRepository.GetUserByEmail(email)
 	if err != nil {
+		// IMPORTANT: do NOT leak user existence
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return auth.LoginResponse{}, errors.New("invalid email or password")
+		}
 		return auth.LoginResponse{}, err
+	}
+
+	if userData == nil {
+		return auth.LoginResponse{}, errors.New("invalid email or password")
 	}
 	if userData.Status != "active" {
 		return auth.LoginResponse{}, errors.New("User is not active")

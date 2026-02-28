@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	"github.com/DATA-DOG/go-sqlmock"
-	"github.com/go-ecommerce-application/services/user-service/internal/models"
+	"github.com/go-ecommerce-application/services/user-service/internal/domain/models"
 	"gorm.io/driver/mysql"
 	"gorm.io/gorm"
 )

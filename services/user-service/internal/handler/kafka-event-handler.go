@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"log"
 
-	"github.com/go-ecommerce-application/pkg/kafka/events"
+	"github.com/go-ecommerce-application/libs/kafka/events"
 	"github.com/go-ecommerce-application/services/user-service/internal/service"
 )
 

@@ -12,9 +12,9 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/go-ecommerce-application/pkg/kafka/config"
-	"github.com/go-ecommerce-application/pkg/kafka/consumer"
-	"github.com/go-ecommerce-application/services/internal/profiling"
+	"github.com/go-ecommerce-application/libs/kafka/config"
+	"github.com/go-ecommerce-application/libs/kafka/consumer"
+	profiling "github.com/go-ecommerce-application/libs/observability"
 	"github.com/go-ecommerce-application/services/user-service/internal/database"
 	"github.com/go-ecommerce-application/services/user-service/internal/handler"
 	"github.com/go-ecommerce-application/services/user-service/internal/repository"
@@ -25,7 +25,8 @@ import (
 
 func main() {
 	// Load environment variables from .env file
-	if err := godotenv.Load(".env"); err != nil {
+	err := godotenv.Load("../../../../.env")
+	if err != nil {
 		log.Println("No .env file found, using system environment variables")
 	}
 

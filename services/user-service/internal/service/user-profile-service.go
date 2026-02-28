@@ -3,13 +3,12 @@ package service
 import (
 	"log"
 
-	"github.com/go-ecommerce-application/pkg/kafka/events"
-	"github.com/go-ecommerce-application/services/user-service/internal/models"
+	"github.com/go-ecommerce-application/libs/kafka/events"
+	"github.com/go-ecommerce-application/services/user-service/internal/domain/models"
 	"github.com/go-ecommerce-application/services/user-service/internal/repository"
 )
 
 type UserProfileService interface {
-	// GetUserProfile(id int) (*models.UserProfile, error)
 	GetUserProfileByUserID(userID string) (*models.UserProfile, error)
 	HandleUserSignedUpEvent(event *events.UserSignedUp) error
 	SaveAddress(adress models.Address) error

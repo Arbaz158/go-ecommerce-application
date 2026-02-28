@@ -2,7 +2,7 @@ package handler
 
 import (
 	"github.com/gin-gonic/gin"
-	"github.com/go-ecommerce-application/services/user-service/internal/models"
+	"github.com/go-ecommerce-application/services/user-service/internal/domain/models"
 	"github.com/go-ecommerce-application/services/user-service/internal/service"
 )
 

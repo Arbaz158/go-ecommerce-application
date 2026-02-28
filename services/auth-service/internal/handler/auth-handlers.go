@@ -2,8 +2,8 @@ package handler
 
 import (
 	"github.com/gin-gonic/gin"
-	"github.com/go-ecommerce-application/pkg/auth"
-	"github.com/go-ecommerce-application/services/auth-service/internal/models"
+	"github.com/go-ecommerce-application/libs/auth"
+	"github.com/go-ecommerce-application/services/auth-service/internal/domain/models"
 	"github.com/go-ecommerce-application/services/auth-service/internal/service"
 )
 

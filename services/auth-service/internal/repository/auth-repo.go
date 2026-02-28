@@ -5,7 +5,7 @@ import (
 	"log"
 
 	"github.com/go-ecommerce-application/services/auth-service/internal/database"
-	"github.com/go-ecommerce-application/services/auth-service/internal/models"
+	"github.com/go-ecommerce-application/services/auth-service/internal/domain/models"
 	"gorm.io/gorm"
 )
 

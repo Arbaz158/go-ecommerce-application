@@ -9,8 +9,8 @@ import (
 	"testing"
 
 	"github.com/gin-gonic/gin"
-	"github.com/go-ecommerce-application/pkg/kafka/events"
-	"github.com/go-ecommerce-application/services/user-service/internal/models"
+	"github.com/go-ecommerce-application/libs/kafka/events"
+	"github.com/go-ecommerce-application/services/user-service/internal/domain/models"
 )
 
 // MockUserProfileService is a mock implementation of UserProfileService

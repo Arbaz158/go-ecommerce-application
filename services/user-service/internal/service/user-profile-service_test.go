@@ -4,12 +4,11 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/go-ecommerce-application/services/user-service/internal/models"
+	"github.com/go-ecommerce-application/services/user-service/internal/domain/models"
 )
 
 // MockUserProfileRepository is a mock implementation of UserProfileRepository
 type MockUserProfileRepository struct {
-	GetUserProfileByIDFunc     func(id uint) (*models.UserProfile, error)
 	GetUserProfileByUserIDFunc func(userID string) (*models.UserProfile, error)
 	CreateUserProfileFunc      func(profile *models.UserProfile) error
 	SaveAddressFunc            func(address *models.Address) error
@@ -91,7 +90,7 @@ func TestGetUserProfile_Success(t *testing.T) {
 func TestGetUserProfile_NotFound(t *testing.T) {
 	// Arrange - Setup
 	mockRepo := &MockUserProfileRepository{
-		GetUserProfileByIDFunc: func(id uint) (*models.UserProfile, error) {
+		GetUserProfileByUserIDFunc: func(userID string) (*models.UserProfile, error) {
 			return nil, nil // User not found returns nil profile
 		},
 	}

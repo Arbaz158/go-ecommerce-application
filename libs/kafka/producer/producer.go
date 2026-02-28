@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"log"
 
-	"github.com/go-ecommerce-application/pkg/kafka/config"
+	"github.com/go-ecommerce-application/libs/kafka/config"
 	"github.com/segmentio/kafka-go"
 )
 

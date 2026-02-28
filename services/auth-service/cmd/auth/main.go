@@ -13,19 +13,20 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/joho/godotenv"
 
-	"github.com/go-ecommerce-application/pkg/kafka/config"
-	"github.com/go-ecommerce-application/pkg/kafka/producer"
+	"github.com/go-ecommerce-application/libs/kafka/config"
+	"github.com/go-ecommerce-application/libs/kafka/producer"
+	profiling "github.com/go-ecommerce-application/libs/observability"
 	"github.com/go-ecommerce-application/services/auth-service/internal/database"
 	"github.com/go-ecommerce-application/services/auth-service/internal/handler"
 	"github.com/go-ecommerce-application/services/auth-service/internal/repository"
 	"github.com/go-ecommerce-application/services/auth-service/internal/routes"
 	"github.com/go-ecommerce-application/services/auth-service/internal/service"
-	"github.com/go-ecommerce-application/services/internal/profiling"
 )
 
 func main() {
 	// Load environment variables from .env file
-	if err := godotenv.Load(".env"); err != nil {
+	err := godotenv.Load("../../../../.env")
+	if err != nil {
 		log.Println("No .env file found, using system environment variables")
 	}
 
