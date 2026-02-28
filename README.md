@@ -1,6 +1,6 @@
 # Go E-Commerce Application
 
-A microservices-based e-commerce platform built with Go, featuring a modular architecture with shared authentication, comprehensive testing, and production-ready profiling capabilities.
+A microservices-based e-commerce platform built with Go, featuring event-driven architecture with Kafka, centralized shared libraries, comprehensive testing, and production-ready profiling capabilities.
 
 ## 📋 Table of Contents
 
@@ -9,10 +9,12 @@ A microservices-based e-commerce platform built with Go, featuring a modular arc
 - [Prerequisites](#prerequisites)
 - [Project Structure](#project-structure)
 - [Services](#services)
+- [Event-Driven Architecture](#event-driven-architecture)
 - [Getting Started](#getting-started)
 - [API Documentation](#api-documentation)
 - [Testing](#testing)
 - [Profiling](#profiling)
+- [Performance Testing](#performance-testing)
 - [Development Guide](#development-guide)
 - [Contributing](#contributing)
 
@@ -22,11 +24,15 @@ A microservices-based e-commerce platform built with Go, featuring a modular arc
 
 This is a modular microservices architecture for an e-commerce platform with:
 
-- **Authentication Service** (`auth-service`): Handles user registration, login, token management
-- **User Service** (`user-service`): Manages user profiles and addresses
-- **Shared Authentication Package** (`pkg/auth`): Reusable JWT and middleware for all services
+- **Authentication Service** (`auth-service`): Handles user registration, login, token management, publishes user signup events
+- **User Service** (`user-service`): Manages user profiles and addresses, consumes user signup events
+- **Shared Libraries** (`libs/`): Centralized authentication, Kafka, and observability packages
+  - `libs/auth`: JWT and middleware for all services
+  - `libs/kafka`: Event producer/consumer for inter-service communication
+  - `libs/observability`: Profiling and monitoring utilities
 - **Comprehensive Testing**: Unit tests for repositories, services, and handlers
 - **Production Profiling**: Built-in CPU, memory, and goroutine profiling with pprof
+- **Event-Driven Architecture**: Kafka-based asynchronous communication between services
 
 ### Key Features
 
@@ -34,60 +40,82 @@ This is a modular microservices architecture for an e-commerce platform with:
 ✅ Password hashing with bcrypt  
 ✅ Middleware-based route protection  
 ✅ Database abstraction with GORM  
+✅ Event-driven inter-service communication with Kafka  
 ✅ Mock-based unit testing  
 ✅ HTTP handler testing with Gin  
 ✅ SQL mocking for database tests  
 ✅ Production-ready pprof profiling  
-✅ Graceful shutdown  
+✅ Graceful shutdown and signal handling  
 
 ---
 
 ## 🏛️ Architecture
 
-### Microservices Architecture
+### Microservices Architecture with Event-Driven Flow
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                     API Gateway / Client                    │
-└────────────────────────┬────────────────────────────────────┘
-                         │
-        ┌────────────────┼────────────────┐
-        │                │                │
-        ▼                ▼                ▼
-   ┌──────────┐     ┌──────────┐    ┌─────────┐
-   │   Auth   │     │   User   │    │  Other  │
-   │ Service  │     │ Service  │    │Services │
-   └────┬─────┘     └────┬─────┘    └─────────┘
-        │                │
-        └────────────────┼────────────────┐
-                         │                │
-                    ┌────▼─────┐    ┌─────▼──────┐
-                    │ pkg/auth  │    │   MySQL    │
-                    │(Shared)   │    │  Database  │
-                    └───────────┘    └────────────┘
+┌──────────────────────────────────────────────────────────────────┐
+│                     API Gateway / Client                         │
+└────────────────┬─────────────────────────┬──────────────────────┘
+                 │                         │
+        ┌────────▼──────────┐      ┌───────▼────────┐
+        │  Auth Service     │      │  User Service  │
+        │  (Port 7070)      │      │  (Port 7071)   │
+        └────────┬──────────┘      └───────┬────────┘
+                 │                         │
+                 │    ┌──────────────┐     │
+                 ├───▶│ Kafka Topic  ◀─────┤
+                 │    │user.events   │     │
+                 │    └──────────────┘     │
+                 │                         │
+        ┌────────▼──────────────────────────▼────────┐
+        │         Shared Libraries (libs/)           │
+        ├────────────────────────────────────────────┤
+        │  • libs/auth       - JWT & Middleware      │
+        │  • libs/kafka      - Producer/Consumer     │
+        │  • libs/observability - Profiling & PPprof │
+        └────────────────────────────────────────────┘
+                 │
+        ┌────────▼──────────┐
+        │  MySQL Database   │
+        │  (Shared)         │
+        └───────────────────┘
 ```
 
 ### Service Layer Pattern
 
-Each service follows a clean architecture with:
+Each service follows a clean architecture with request flow:
 
 ```
-Handler (HTTP Layer)
+HTTP Request
     ↓
-Service (Business Logic)
+Handler (HTTP Layer) - Route mapping & request validation
     ↓
-Repository (Data Layer)
+Service (Business Logic) - Core domain logic
     ↓
-Database
+Repository (Data Layer) - Database abstraction
+    ↓
+Database - MySQL persistence
 ```
 
-### Shared Authentication
+### Event-Flow Communication
 
-All services use the centralized `pkg/auth` package for:
-- JWT token generation and validation
-- Password hashing and verification
-- Auth middleware for route protection
-- Shared DTOs (Data Transfer Objects)
+```
+Auth Service               Kafka                User Service
+    │                       │                        │
+    ├─→ User Signup ───→ user.events ───→ Consume Event
+    │    Published          Topic          Handle Event
+    │                                      Create Profile
+    │                                      (Auto sync)
+```
+
+### Shared Libraries
+
+All services use centralized `libs/` packages:
+
+- **`libs/auth`**: JWT token generation/validation, password hashing, auth middleware
+- **`libs/kafka`**: Event producer/consumer, Kafka configuration, event definitions
+- **`libs/observability`**: pprof profiling, performance monitoring
 
 ---
 
@@ -120,54 +148,105 @@ brew install mysql
 
 ```
 go-ecommerce-application/
-├── pkg/
-│   └── auth/                          # Shared authentication package
-│       ├── jwt.go                     # JWT token generation & validation
-│       ├── utils.go                   # Password hashing utilities
-│       ├── dto.go                     # Shared data transfer objects
-│       └── middleware.go              # Gin authentication middleware
+├── libs/                                  # Shared libraries (go modules)
+│   ├── auth/                              # Authentication library
+│   │   ├── go.mod                         # Auth module definition
+│   │   ├── jwt.go                         # JWT token generation & validation
+│   │   ├── utils.go                       # Password hashing utilities
+│   │   ├── dto.go                         # Shared data transfer objects
+│   │   └── middleware.go                  # Gin authentication middleware
+│   │
+│   ├── kafka/                             # Event-driven communication library
+│   │   ├── go.mod                         # Kafka module definition
+│   │   ├── config/
+│   │   │   └── kafka.go                   # Kafka configuration & broker setup
+│   │   ├── events/
+│   │   │   └── events.go                  # Event definitions (UserSignedUp, etc.)
+│   │   ├── producer/
+│   │   │   └── producer.go                # Generic Kafka producer
+│   │   └── consumer/
+│   │       └── consumer.go                # Generic Kafka consumer with group handling
+│   │
+│   └── observability/                     # Observability library
+│       ├── go.mod                         # Observability module definition
+│       └── pprof.go                       # pprof profiling initialization
 │
 ├── services/
-│   ├── auth-service/
+│   ├── auth-service/                      # Authentication & Authorization service
+│   │   ├── go.mod
 │   │   ├── cmd/
-│   │   │   └── main.go                # Service entry point
+│   │   │   └── auth/
+│   │   │       └── main.go                # Service entry point (Port 7070)
+│   │   ├── Dockerfile
+│   │   ├── docs/
 │   │   └── internal/
-│   │       ├── handler/               # HTTP handlers
-│   │       ├── service/               # Business logic
-│   │       ├── repository/            # Data access layer
-│   │       ├── models/                # Database models
-│   │       ├── dto/                   # Local DTOs (deprecated - use pkg/auth)
-│   │       ├── authentication/        # JWT logic (deprecated - use pkg/auth)
-│   │       ├── database/              # Database configuration
-│   │       ├── routes/                # Route definitions
-│   │       └── utils/                 # Utilities (deprecated - use pkg/auth)
+│   │       ├── handler/
+│   │       │   └── auth-handlers.go       # HTTP request handlers
+│   │       ├── service/
+│   │       │   └── auth-service.go        # Business logic (signup, login, refresh)
+│   │       ├── repository/
+│   │       │   ├── auth-repo.go           # Database operations
+│   │       │   └── auth-repo_test.go      # Repository unit tests
+│   │       ├── models/
+│   │       │   └── user.go                # Database models (User, RefreshToken)
+│   │       ├── domain/
+│   │       │   ├── authentication/        # Authentication domain logic
+│   │       │   │   └── jwt.go
+│   │       │   ├── dto/
+│   │       │   │   └── auth-dto.go        # Request/response DTOs
+│   │       │   └── utils/
+│   │       │       └── auth-utils.go
+│   │       ├── routes/
+│   │       │   └── auth-routes.go         # Route registration
+│   │       └── database/
+│   │           └── mysql-con.go           # MySQL connection setup
 │   │
-│   ├── user-service/
-│   │   ├── cmd/
-│   │   │   └── main.go                # Service entry point
-│   │   └── internal/
-│   │       ├── handler/               # HTTP handlers
-│   │       │   └── user-profile-handlers_test.go
-│   │       ├── service/               # Business logic
-│   │       │   └── user-profile-service_test.go
-│   │       ├── repository/            # Data access layer
-│   │       │   └── user-profile-repository_test.go
-│   │       ├── models/                # Database models
-│   │       ├── database/              # Database configuration
-│   │       ├── routes/                # Route definitions
-│   │       └── utils/                 # Utilities
-│   │
-│   └── internal/
-│       └── profiling/                 # Shared profiling configuration
-│           └── pprof.go               # pprof initialization
+│   └── user-service/                      # User Profile service
+│       ├── go.mod
+│       ├── cmd/
+│       │   └── user/
+│       │       └── main.go                # Service entry point (Port 7071)
+│       ├── Dockerfile
+│       ├── docs/
+│       └── internal/
+│           ├── handler/
+│           │   ├── user-profile-handlers.go       # HTTP endpoints
+│           │   ├── user-profile-handlers_test.go  # Handler tests
+│           │   └── kafka-event-handler.go         # Kafka event consumers
+│           ├── service/
+│           │   ├── user-profile-service.go        # Business logic
+│           │   └── user-profile-service_test.go   # Service tests
+│           ├── repository/
+│           │   ├── user-profile-repository.go     # Database operations
+│           │   └── user-profile-repository_test.go # Repository tests
+│           ├── models/
+│           │   └── user_profile.go                # Database models (UserProfile, Address)
+│           ├── domain/
+│           │   └── dto/
+│           ├── routes/
+│           │   └── user-profile-routes.go         # Route registration
+│           ├── utils/
+│           └── database/
+│               └── mysql-con.go           # MySQL connection setup
 │
-├── go.mod                             # Go modules file
-├── go.sum                             # Module checksums
-├── PROFILING_GUIDE.md                 # Profiling documentation
-├── PROFILING_CHEATSHEET.md            # Quick profiling reference
-├── test-profiling.sh                  # Script to generate profiles
-└── README.md                          # This file
+├── go.work                                # Go workspace file (for local module development)
+├── go.work.sum
+├── auth-tester.go                         # Load testing tool for auth service
+├── PROFILING_GUIDE.md                     # Detailed profiling documentation
+├── PROFILING_CHEATSHEET.md                # Quick profiling reference
+├── KAFKA_INTEGRATION.md                   # Kafka event architecture documentation
+├── KAFKA_BUILD_STATUS.md                  # Kafka setup verification guide
+├── README.md                              # This file
+└── docs/                                  # Additional documentation
 ```
+
+### Key Structure Notes
+
+- **Go Workspace**: Uses `go.work` to manage multiple modules (auth, kafka, observability are separate modules)
+- **Internal Package**: Each service uses `internal/` to hide implementation details
+- **Shared Libraries**: Located in `libs/` and imported as separate modules by services
+- **Testing**: Tests placed alongside implementation files with `*_test.go` suffix
+- **Database Models**: Separate from DTOs (models are DB-focused, DTOs are API-focused)
 
 ---
 
@@ -175,38 +254,27 @@ go-ecommerce-application/
 
 ### 1. Auth Service
 
-**Purpose**: User authentication and authorization
+**Purpose**: User authentication, authorization, and token management
 
-**Port**: `8080` (configurable via `HTTP_ADDR`)
+**Port**: `7070` (configurable via `HTTP_ADDR`)
 
 **Endpoints**:
-- `POST /auth/signup` - Register a new user
+- `POST /auth/signup` - Register a new user (publishes `UserSignedUp` event to Kafka)
 - `POST /auth/login` - Login user (returns access & refresh tokens)
 - `POST /auth/refresh` - Refresh access token
 - `GET /auth/logout` - Logout user (protected)
 
-**Database Models**:
-```go
-type AuthUser struct {
-    Id       string  // UUID
-    Email    string  // Unique
-    Password string  // Bcrypt hashed
-    Role     string
-    Status   string  // "active", "inactive", etc.
-}
-
-type RefreshToken struct {
-    Id        string
-    UserID    string
-    ExpiresAt time.Time
-}
-```
+**Responsibilities**:
+- User registration and credential validation
+- JWT token generation and management
+- Kafka event publishing for user signup events
+- Password hashing and verification
 
 ### 2. User Service
 
-**Purpose**: User profile and address management
+**Purpose**: User profile and address management, consumes auth events
 
-**Port**: `8081` (configurable via `HTTP_ADDR`)
+**Port**: `7071` (configurable via `HTTP_ADDR_USER_SERVICE`)
 
 **Endpoints**:
 - `GET /health` - Health check (no auth required)
@@ -214,26 +282,92 @@ type RefreshToken struct {
 - `POST /users/address` - Create address (protected)
 - `GET /users/address` - Get user addresses (protected)
 
-**Database Models**:
-```go
-type UserProfile struct {
-    ID    uint
-    Name  string
-    Phone string  // Unique
-    Email string  // Unique
-}
+**Responsibilities**:
+- User profile management
+- Address management for users
+- Kafka event consumption (UserSignedUp events)
+- Automatic user profile creation from signup events
 
-type Address struct {
-    ID         uint
-    UserID     uint      // Foreign key
-    Street     string
-    City       string
-    State      string
-    PostalCode string
-    CreatedAt  int64
-    UpdatedAt  int64
+---
+
+## 📨 Event-Driven Architecture
+
+This application uses **Kafka** for asynchronous, event-driven communication between services.
+
+### Current Event Flow
+
+**Scenario**: User Registration
+
+```
+1. User calls PUT /auth/signup on Auth Service
+    ↓
+2. Auth Service validates credentials and creates user
+    ↓
+3. Auth Service publishes UserSignedUp event to Kafka topic 'user.events'
+    ↓
+4. User Service consumes UserSignedUp event
+    ↓
+5. User Service automatically creates UserProfile entry
+    ↓
+6. Services remain decoupled - no direct HTTP calls needed
+```
+
+### Event Definitions
+
+Located in `libs/kafka/events/events.go`:
+
+```go
+type UserSignedUp struct {
+    EventType string    // "user.signed_up"
+    UserID    string    // User ID from auth service
+    Email     string
+    FirstName string
+    LastName  string
+    EventID   string    // Unique event ID
+    Timestamp int64     // Unix timestamp
 }
 ```
+
+### Using the Event System
+
+**Publishing an Event** (Auth Service):
+```go
+// Publish user signup event to Kafka
+event := events.UserSignedUp{
+    EventType: "user.signed_up",
+    UserID:    userID,
+    Email:     user.Email,
+    Timestamp: time.Now().Unix(),
+}
+
+messageBytes, _ := json.Marshal(event)
+kafkaProducer.Publish(ctx, "user.events", userID, messageBytes)
+```
+
+**Consuming an Event** (User Service):
+```go
+// Consumer automatically calls this handler for each message
+handler := func(ctx context.Context, message []byte) error {
+    var event events.UserSignedUp
+    json.Unmarshal(message, &event)
+    
+    // Create user profile from event
+    return userProfileService.HandleUserSignedUpEvent(&event)
+}
+
+consumer, _ := consumer.NewConsumer(kafkaCfg, "user.events", handler)
+consumer.Start(ctx) // Blocks and consumes messages
+```
+
+### Benefits of This Architecture
+
+✅ **Loose Coupling**: Services don't call each other directly  
+✅ **Scalability**: Easy to add new services that consume events  
+✅ **Resilience**: Services continue working if Kafka is temporarily unavailable  
+✅ **Asynchronous Processing**: Events don't block the API response  
+✅ **Audit Trail**: All events are logged in Kafka for debugging  
+
+For detailed Kafka setup and configuration, see [KAFKA_INTEGRATION.md](KAFKA_INTEGRATION.md).
 
 ---
 
@@ -249,11 +383,44 @@ cd go-ecommerce-application
 ### 2. Install Dependencies
 
 ```bash
+# Download and verify all module dependencies
 go mod download
+
+# Tidy dependencies
 go mod tidy
 ```
 
-### 3. Configure Environment
+### 3. Setup Database
+
+```bash
+# Start MySQL server (macOS)
+brew services start mysql
+
+# Create database
+mysql -u root -p -e "CREATE DATABASE IF NOT EXISTS ecommerce_db;"
+
+# (Optional) Run migrations if schema.sql exists
+# mysql -u root -p ecommerce_db < schema.sql
+```
+
+### 4. Setup Kafka (Optional but Recommended)
+
+For event-driven features to work, Kafka must be running:
+
+```bash
+# Install Kafka using Homebrew
+brew install kafka
+
+# Start Kafka broker (runs on localhost:9092 by default)
+brew services start kafka
+
+# Verify Kafka is running
+kafka-broker-api-versions --bootstrap-server localhost:9092
+```
+
+If Kafka is unavailable, services will log warnings but continue operating (graceful degradation).
+
+### 5. Configure Environment
 
 Create a `.env` file in the root directory:
 
@@ -262,45 +429,41 @@ Create a `.env` file in the root directory:
 DB_HOST=localhost
 DB_PORT=3306
 DB_USER=root
-DB_PASSWORD=your_password
+DB_PASSWORD=your_mysql_password
 DB_NAME=ecommerce_db
 
 # Service Configuration
-HTTP_ADDR=:8080          # Auth service
-GIN_MODE=release         # or "debug" for development
+HTTP_ADDR=:7070                    # Auth service port
+HTTP_ADDR_USER_SERVICE=:7071       # User service port
+GIN_MODE=release                   # or "debug" for development
 
-# Profiling
-ENABLE_PPROF=true        # Enable profiling on port 6060, 6061
+# Kafka Configuration
+KAFKA_BROKERS=localhost:9092       # Kafka broker addresses (comma-separated)
+
+# Profiling (Optional)
+ENABLE_PPROF=true                  # Enable pprof profiling on port 6060, 6061
 ```
 
-### 4. Setup Database
-
-```bash
-# Start MySQL server
-brew services start mysql
-
-# Create database
-mysql -u root -p < schema.sql
-
-# Or run migrations manually
-mysql -u root -p -D ecommerce_db < migrations/001_initial_schema.sql
-```
-
-### 5. Run Services
+### 6. Run Services
 
 **Terminal 1 - Auth Service**:
 ```bash
-cd services/auth-service/cmd
+cd services/auth-service/cmd/auth
 go run main.go
+# Expected output: Server listening on :7070
 ```
 
 **Terminal 2 - User Service**:
 ```bash
-cd services/user-service/cmd
+cd services/user-service/cmd/user
 go run main.go
+# Expected output: Server listening on :7071
+# Should also show: Listening for Kafka events...
 ```
 
-Both services should start without errors. Check logs for confirmation.
+Both services should start without errors. Check console logs for confirmation:
+- Auth service should log: `listening to address :7070`
+- User service should log: `listening to address :7071` and Kafka consumer status
 
 ---
 
@@ -311,7 +474,7 @@ Both services should start without errors. Check logs for confirmation.
 #### 1. Register User
 
 ```bash
-curl -X POST http://localhost:8080/auth/signup \
+curl -X POST http://localhost:7070/auth/signup \
   -H "Content-Type: application/json" \
   -d '{
     "email": "user@example.com",
@@ -327,10 +490,12 @@ curl -X POST http://localhost:8080/auth/signup \
 }
 ```
 
+**Background**: This endpoint also publishes a `UserSignedUp` event to Kafka, which is consumed by the User Service to automatically create a user profile.
+
 #### 2. Login
 
 ```bash
-curl -X POST http://localhost:8080/auth/login \
+curl -X POST http://localhost:7070/auth/login \
   -H "Content-Type: application/json" \
   -d '{
     "email": "user@example.com",
@@ -360,7 +525,7 @@ curl -X POST http://localhost:8080/auth/login \
 #### 3. Access Protected Endpoint
 
 ```bash
-curl -X GET http://localhost:8081/users/me \
+curl -X GET http://localhost:7071/users/me \
   -H "Authorization: Bearer <access_token>"
 ```
 
@@ -377,7 +542,7 @@ curl -X GET http://localhost:8081/users/me \
 #### 4. Create Address (Protected)
 
 ```bash
-curl -X POST http://localhost:8081/users/address \
+curl -X POST http://localhost:7071/users/address \
   -H "Authorization: Bearer <access_token>" \
   -H "Content-Type: application/json" \
   -d '{
@@ -526,7 +691,73 @@ See [PROFILING_GUIDE.md](PROFILING_GUIDE.md) for detailed profiling instructions
 
 ---
 
-## 👨‍💻 Development Guide
+## � Performance Testing
+
+This project includes an integrated load testing tool to measure auth service performance.
+
+### Using auth-tester.go
+
+Located at the root: `auth-tester.go`
+
+This tool simulates concurrent load on the Auth Service login endpoint:
+
+**Configuration**:
+```go
+const (
+    url         = "http://localhost:7070/auth/login"
+    concurrency = 50    // number of goroutines
+    requests    = 2000  // total requests
+)
+```
+
+**Run performance test**:
+```bash
+go run auth-tester.go
+```
+
+**What it tests**:
+- Sends 2000 concurrent login requests (50 goroutines)
+- Measures total execution time
+- Tests under realistic concurrent load
+- Helps identify performance bottlenecks
+
+**Example output**:
+```
+Completed 2000 requests in 12.34 seconds
+Requests/sec: 162
+Avg latency: ~6ms
+```
+
+**Customize the test**:
+```bash
+# Edit auth-tester.go to change:
+# - concurrency level
+# - total number of requests
+# - timeout duration
+# - endpoint URL
+# - request payload
+```
+
+### Integration with Profiling
+
+Combine performance testing with profiling for insights:
+
+```bash
+# Terminal 1: Start services with profiling enabled
+export ENABLE_PPROF=true
+cd services/auth-service/cmd/auth && go run main.go
+
+# Terminal 2: Start performance test and capture CPU profile simultaneously
+go tool pprof http://localhost:6060/debug/pprof/profile?seconds=20 &
+go run auth-tester.go
+
+# Terminal 3: Analyze heap after test
+go tool pprof http://localhost:6060/debug/pprof/heap
+```
+
+---
+
+## �👨‍💻 Development Guide
 
 ### Adding New Endpoint
 
@@ -574,10 +805,12 @@ func TestCreate_Success(t *testing.T) {
 }
 ```
 
-### Using Shared Auth Package
+### Using Shared Libraries
+
+#### Using Shared Auth Library
 
 ```go
-import "github.com/go-ecommerce-application/pkg/auth"
+import "github.com/go-ecommerce-application/libs/auth"
 
 // Generate tokens
 accessToken, refreshToken, _, _, err := auth.GenerateTokens(userID, role)
@@ -595,18 +828,44 @@ isValid := auth.CheckPasswordHash(password, hashedPassword)
 router.GET("/protected", auth.AuthMiddleware(), handler.ProtectedHandler)
 ```
 
+#### Using Kafka Producer/Consumer
+
+```go
+import (
+    "github.com/go-ecommerce-application/libs/kafka/config"
+    "github.com/go-ecommerce-application/libs/kafka/producer"
+    "github.com/go-ecommerce-application/libs/kafka/consumer"
+)
+
+// Publishing events
+kafkaCfg := config.NewKafkaConfig(brokers, "")
+kafkaProducer, _ := producer.NewProducer(kafkaCfg)
+kafkaProducer.Publish(ctx, "topic.name", key, messageBytes)
+
+// Consuming events
+handler := func(ctx context.Context, message []byte) error {
+    // Process message
+    return nil
+}
+kafkaCfg := config.NewKafkaConfig(brokers, "consumer-group")
+consumer, _ := consumer.NewConsumer(kafkaCfg, "topic.name", handler)
+consumer.Start(ctx)
+```
+
 ### Environment Variables
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `HTTP_ADDR` | `:8080` | Service port |
+| `HTTP_ADDR` | `:7070` | Auth service port |
+| `HTTP_ADDR_USER_SERVICE` | `:7071` | User service port |
 | `GIN_MODE` | `release` | `debug` or `release` |
 | `DB_HOST` | `localhost` | MySQL host |
 | `DB_PORT` | `3306` | MySQL port |
 | `DB_USER` | `root` | MySQL user |
 | `DB_PASSWORD` | - | MySQL password |
 | `DB_NAME` | `ecommerce_db` | Database name |
-| `ENABLE_PPROF` | `false` | Enable profiling |
+| `KAFKA_BROKERS` | `localhost:9092` | Comma-separated Kafka broker addresses |
+| `ENABLE_PPROF` | `false` | Enable profiling (pprof on port 6060, 6061) |
 
 ---
 
@@ -663,9 +922,28 @@ listen: bind: address already in use
 
 **Solution**: Change port in `.env` or kill existing process:
 ```bash
-lsof -i :8080
+# Check which process is using port 7070
+lsof -i :7070
+
+# Kill the process
 kill -9 <PID>
+
+# Or change the port in .env:
+# HTTP_ADDR=:7072
 ```
+
+### Kafka Connection Failed
+
+```
+Error: Failed to connect to Kafka brokers: localhost:9092
+Error: context deadline exceeded
+```
+
+**Solution**: 
+- Ensure Kafka is running: `brew services start kafka`
+- Verify Kafka broker is accessible: `kafka-broker-api-versions --bootstrap-server localhost:9092`
+- Check `KAFKA_BROKERS` environment variable
+- Note: Services will continue operating without Kafka (graceful degradation)
 
 ### JWT Token Invalid
 
@@ -699,6 +977,7 @@ go test -v ./...
 | `google/uuid` | v1.6.0 | UUID generation |
 | `joho/godotenv` | v1.5.1 | `.env` file parsing |
 | `DATA-DOG/go-sqlmock` | v1.5.2 | SQL mocking for tests |
+| `segmentio/kafka-go` | v0.4.50 | Kafka client for events |
 
 ---
 
@@ -753,4 +1032,4 @@ For issues or questions:
 ---
 
 **Created**: January 2026  
-**Last Updated**: January 22, 2026
+**Last Updated**: February 28, 2026
