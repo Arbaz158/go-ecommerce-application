@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -34,7 +35,7 @@ func main() {
 	if addr == "" {
 		addr = ":7071"
 	}
-
+	fmt.Println("Adress :", addr)
 	// set Gin mode via env; default to release for production
 	if m := os.Getenv("GIN_MODE"); m != "" {
 		gin.SetMode(m)
