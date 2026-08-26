@@ -1,0 +1,1048 @@
+pipeline {
+
+    agent any
+
+    environment {
+
+        // ==========================================================
+        // Docker Hub
+        // ==========================================================
+
+        DOCKER_REPO = 'arbaz344/go-ecommerce-application'
+
+        AUTH_IMAGE = "${DOCKER_REPO}:auth-service-${BUILD_NUMBER}"
+        USER_IMAGE = "${DOCKER_REPO}:user-service-${BUILD_NUMBER}"
+
+
+        // ==========================================================
+        // Docker Containers
+        // ==========================================================
+
+        AUTH_CONTAINER = 'auth-service'
+        USER_CONTAINER = 'user-service'
+
+        DOCKER_NETWORK = 'employee-network'
+
+
+        // ==========================================================
+        // Application Configuration
+        // ==========================================================
+
+        JWT_ISSUER = 'ecommerce-app'
+
+        JWT_ACCESS_EXPIRY_MINUTES = '15'
+
+        JWT_REFRESH_EXPIRY_DAYS = '7'
+
+
+        // ==========================================================
+        // HTTP Configuration
+        // ==========================================================
+
+        HTTP_ADDR = ':7070'
+
+        HTTP_ADDR_USER_SERVICE = ':7071'
+
+        GIN_MODE = 'release'
+
+        // Keep false in production unless you specifically need pprof
+        ENABLE_PPROF = 'false'
+
+
+        // ==========================================================
+        // Database Configuration
+        // ==========================================================
+
+        // IMPORTANT:
+        // These are Docker container/service names, NOT localhost.
+        DB_HOST = 'mysql'
+
+        DB_PORT = '3306'
+
+        AUTH_DB_NAME = 'somedb'
+
+        USER_DB_NAME = 'somedb'
+
+
+        // ==========================================================
+        // Kafka Configuration
+        // ==========================================================
+
+        // IMPORTANT:
+        // Kafka must be reachable as "kafka" on employee-network.
+        KAFKA_BROKERS = 'kafka:9092'
+    }
+
+
+    options {
+
+        // Keep only the latest 10 Jenkins builds
+        buildDiscarder(
+            logRotator(
+                numToKeepStr: '10'
+            )
+        )
+
+        // Do not allow two deployments at the same time
+        disableConcurrentBuilds()
+
+        // Add timestamps to console output
+        timestamps()
+
+        // Fail the pipeline if it runs for more than 30 minutes
+        timeout(
+            time: 30,
+            unit: 'MINUTES'
+        )
+    }
+
+
+    triggers {
+
+        // GitHub webhook
+        githubPush()
+    }
+
+
+    stages {
+
+
+        // ==========================================================
+        // 1. CHECKOUT
+        // ==========================================================
+
+        stage('Checkout') {
+
+            steps {
+
+                echo 'Checking out source code...'
+
+                checkout scm
+
+                sh '''
+                    set -e
+
+                    echo "======================================"
+                    echo "Git Information"
+                    echo "======================================"
+
+                    echo "Commit:"
+                    git rev-parse HEAD
+
+                    echo ""
+
+                    echo "Commit message:"
+                    git log -1 --pretty=%B
+
+                    echo ""
+
+                    echo "Current branch:"
+                    git branch --show-current || true
+                '''
+            }
+        }
+
+
+        // ==========================================================
+        // 2. VERIFY BRANCH
+        // ==========================================================
+
+        stage('Verify Branch') {
+
+            steps {
+
+                sh '''
+                    set -e
+
+                    echo "Checking branch..."
+
+                    BRANCH="${GIT_BRANCH:-}"
+
+                    if [ -z "${BRANCH}" ]; then
+                        BRANCH=$(git rev-parse --abbrev-ref HEAD)
+                    fi
+
+                    echo "Detected branch: ${BRANCH}"
+
+                    case "${BRANCH}" in
+                        main|*/main)
+                            echo "Main branch verified."
+                            ;;
+                        *)
+                            echo "ERROR: This pipeline only deploys the main branch."
+                            echo "Detected branch: ${BRANCH}"
+                            exit 1
+                            ;;
+                    esac
+                '''
+            }
+        }
+
+
+        // ==========================================================
+        // 3. VERIFY ENVIRONMENT
+        // ==========================================================
+
+        stage('Verify Environment') {
+
+            steps {
+
+                sh '''
+                    set -e
+
+                    echo "======================================"
+                    echo "Go Version"
+                    echo "======================================"
+
+                    go version
+
+                    echo ""
+                    echo "======================================"
+                    echo "Docker Version"
+                    echo "======================================"
+
+                    docker version
+
+                    echo ""
+                    echo "======================================"
+                    echo "Docker Access"
+                    echo "======================================"
+
+                    docker ps
+
+                    echo ""
+                    echo "======================================"
+                    echo "Checking Go 1.25.1"
+                    echo "======================================"
+
+                    GO_VERSION=$(go version | awk '{print $3}')
+
+                    if [ "${GO_VERSION}" != "go1.25.1" ]; then
+                        echo "WARNING: Jenkins agent is using ${GO_VERSION}"
+                        echo "Expected Go version: go1.25.1"
+                    else
+                        echo "Go 1.25.1 verified."
+                    fi
+                '''
+            }
+        }
+
+
+        // ==========================================================
+        // 4. VERIFY GO WORKSPACE
+        // ==========================================================
+
+        stage('Verify Go Workspace') {
+
+            steps {
+
+                sh '''
+                    set -e
+
+                    echo "Checking go.work..."
+
+                    if [ ! -f go.work ]; then
+                        echo "ERROR: go.work not found."
+                        exit 1
+                    fi
+
+                    echo ""
+                    echo "======================================"
+                    echo "go.work"
+                    echo "======================================"
+
+                    cat go.work
+
+                    echo ""
+                    echo "======================================"
+                    echo "Go Workspace"
+                    echo "======================================"
+
+                    go work edit -json
+                '''
+            }
+        }
+
+
+        // ==========================================================
+        // 5. DOWNLOAD DEPENDENCIES
+        // ==========================================================
+
+        stage('Download Dependencies') {
+
+            steps {
+
+                sh '''
+                    set -e
+
+                    echo "Downloading auth library dependencies..."
+
+                    cd libs/auth
+                    go mod download
+
+
+                    echo "Downloading kafka library dependencies..."
+
+                    cd ../kafka
+                    go mod download
+
+
+                    echo "Downloading observability dependencies..."
+
+                    cd ../observability
+                    go mod download
+
+
+                    echo "Downloading auth-service dependencies..."
+
+                    cd ../../services/auth-service
+                    go mod download
+
+
+                    echo "Downloading user-service dependencies..."
+
+                    cd ../user-service
+                    go mod download
+
+
+                    echo ""
+                    echo "All dependencies downloaded successfully."
+                '''
+            }
+        }
+
+
+        // ==========================================================
+        // 6. GO FORMAT CHECK
+        // ==========================================================
+
+        stage('Go Format Check') {
+
+            steps {
+
+                sh '''
+                    set -e
+
+                    echo "Checking Go formatting..."
+
+                    FILES=$(find libs services -type f -name "*.go")
+
+                    if [ -z "${FILES}" ]; then
+                        echo "ERROR: No Go files found."
+                        exit 1
+                    fi
+
+                    UNFORMATTED=$(gofmt -l ${FILES})
+
+                    if [ -n "${UNFORMATTED}" ]; then
+
+                        echo ""
+                        echo "The following Go files are not formatted:"
+                        echo "${UNFORMATTED}"
+
+                        echo ""
+                        echo "Run gofmt before pushing the code."
+
+                        exit 1
+                    fi
+
+                    echo "All Go files are properly formatted."
+                '''
+            }
+        }
+
+
+        // ==========================================================
+        // 7. RUN UNIT TESTS
+        // ==========================================================
+
+        stage('Run Unit Tests') {
+
+            steps {
+
+                sh '''
+                    set -e
+
+                    echo "======================================"
+                    echo "Testing libs/auth"
+                    echo "======================================"
+
+                    cd libs/auth
+                    go test ./...
+
+
+                    echo ""
+                    echo "======================================"
+                    echo "Testing libs/kafka"
+                    echo "======================================"
+
+                    cd ../kafka
+                    go test ./...
+
+
+                    echo ""
+                    echo "======================================"
+                    echo "Testing libs/observability"
+                    echo "======================================"
+
+                    cd ../observability
+                    go test ./...
+
+
+                    echo ""
+                    echo "======================================"
+                    echo "Testing auth-service"
+                    echo "======================================"
+
+                    cd ../../services/auth-service
+                    go test ./...
+
+
+                    echo ""
+                    echo "======================================"
+                    echo "Testing user-service"
+                    echo "======================================"
+
+                    cd ../user-service
+                    go test ./...
+
+
+                    echo ""
+                    echo "======================================"
+                    echo "All unit tests passed."
+                    echo "======================================"
+                '''
+            }
+        }
+
+
+        // ==========================================================
+        // 8. BUILD GO APPLICATIONS
+        // ==========================================================
+
+        stage('Build Go Applications') {
+
+            steps {
+
+                sh '''
+                    set -e
+
+                    echo "======================================"
+                    echo "Building auth-service"
+                    echo "======================================"
+
+                    cd services/auth-service
+
+                    go build \
+                        -o auth-service \
+                        ./cmd/auth
+
+                    echo "Auth-service build successful."
+
+
+                    echo ""
+                    echo "======================================"
+                    echo "Building user-service"
+                    echo "======================================"
+
+                    cd ../user-service
+
+                    go build \
+                        -o user-service \
+                        ./cmd/user
+
+                    echo "User-service build successful."
+
+
+                    echo ""
+                    echo "======================================"
+                    echo "Go build completed successfully."
+                    echo "======================================"
+                '''
+            }
+        }
+
+
+        // ==========================================================
+        // 9. PREPARE DOCKER NETWORK
+        // ==========================================================
+
+        stage('Prepare Docker Network') {
+
+            steps {
+
+                sh '''
+                    set -e
+
+                    echo "Checking Docker network..."
+
+                    if docker network inspect ${DOCKER_NETWORK} > /dev/null 2>&1; then
+
+                        echo "Docker network ${DOCKER_NETWORK} already exists."
+
+                    else
+
+                        echo "Creating Docker network ${DOCKER_NETWORK}..."
+
+                        docker network create ${DOCKER_NETWORK}
+
+                        echo "Docker network created."
+                    fi
+
+
+                    echo ""
+                    echo "Docker network details:"
+
+                    docker network inspect ${DOCKER_NETWORK}
+                '''
+            }
+        }
+
+
+        // ==========================================================
+        // 10. VERIFY MYSQL AND KAFKA
+        // ==========================================================
+
+        stage('Verify Infrastructure') {
+
+            steps {
+
+                sh '''
+                    set -e
+
+                    echo "======================================"
+                    echo "Checking MySQL container"
+                    echo "======================================"
+
+                    if docker ps --format '{{.Names}}' | grep -q "^mysql$"; then
+
+                        echo "MySQL container is running."
+
+                    else
+
+                        echo "WARNING: MySQL container named 'mysql' is not running."
+                        echo "The application may fail to start."
+                    fi
+
+
+                    echo ""
+                    echo "======================================"
+                    echo "Checking Kafka container"
+                    echo "======================================"
+
+                    if docker ps --format '{{.Names}}' | grep -q "^kafka$"; then
+
+                        echo "Kafka container is running."
+
+                    else
+
+                        echo "WARNING: Kafka container named 'kafka' is not running."
+                        echo "The application may fail to start."
+                    fi
+
+
+                    echo ""
+                    echo "======================================"
+                    echo "Connecting MySQL to network if needed"
+                    echo "======================================"
+
+                    if docker ps --format '{{.Names}}' | grep -q "^mysql$"; then
+
+                        if docker network inspect ${DOCKER_NETWORK} \
+                            --format '{{range .Containers}}{{.Name}}{{end}}' \
+                            | grep -q "mysql"; then
+
+                            echo "MySQL is already connected to ${DOCKER_NETWORK}."
+
+                        else
+
+                            echo "Connecting MySQL to ${DOCKER_NETWORK}..."
+
+                            docker network connect ${DOCKER_NETWORK} mysql || true
+                        fi
+                    fi
+
+
+                    echo ""
+                    echo "======================================"
+                    echo "Connecting Kafka to network if needed"
+                    echo "======================================"
+
+                    if docker ps --format '{{.Names}}' | grep -q "^kafka$"; then
+
+                        if docker network inspect ${DOCKER_NETWORK} \
+                            --format '{{range .Containers}}{{.Name}}{{end}}' \
+                            | grep -q "kafka"; then
+
+                            echo "Kafka is already connected to ${DOCKER_NETWORK}."
+
+                        else
+
+                            echo "Connecting Kafka to ${DOCKER_NETWORK}..."
+
+                            docker network connect ${DOCKER_NETWORK} kafka || true
+                        fi
+                    fi
+                '''
+            }
+        }
+
+
+        // ==========================================================
+        // 11. BUILD DOCKER IMAGES
+        // ==========================================================
+
+        stage('Build Docker Images') {
+
+            steps {
+
+                sh '''
+                    set -e
+
+                    echo "======================================"
+                    echo "Building auth-service Docker image"
+                    echo "======================================"
+
+                    docker build \
+                        -t ${AUTH_IMAGE} \
+                        services/auth-service
+
+
+                    echo ""
+                    echo "Auth-service Docker image built successfully."
+
+
+                    echo ""
+                    echo "======================================"
+                    echo "Building user-service Docker image"
+                    echo "======================================"
+
+                    docker build \
+                        -t ${USER_IMAGE} \
+                        services/user-service
+
+
+                    echo ""
+                    echo "User-service Docker image built successfully."
+
+
+                    echo ""
+                    echo "======================================"
+                    echo "Created Docker Images"
+                    echo "======================================"
+
+                    docker images | grep go-ecommerce-application || true
+                '''
+            }
+        }
+
+
+        // ==========================================================
+        // 12. DOCKER HUB LOGIN
+        // ==========================================================
+
+        stage('Docker Hub Login') {
+
+            steps {
+
+                withCredentials([
+
+                    usernamePassword(
+                        credentialsId: 'dockerhub-creds',
+                        usernameVariable: 'DOCKER_USERNAME',
+                        passwordVariable: 'DOCKER_PASSWORD'
+                    )
+
+                ]) {
+
+                    sh '''
+                        set -e
+
+                        echo "Logging into Docker Hub..."
+
+                        echo "${DOCKER_PASSWORD}" | docker login \
+                            --username "${DOCKER_USERNAME}" \
+                            --password-stdin
+
+                        echo "Docker Hub login successful."
+                    '''
+                }
+            }
+        }
+
+
+        // ==========================================================
+        // 13. PUSH DOCKER IMAGES
+        // ==========================================================
+
+        stage('Push Docker Images') {
+
+            steps {
+
+                sh '''
+                    set -e
+
+                    echo "======================================"
+                    echo "Pushing auth-service image"
+                    echo "======================================"
+
+                    docker push ${AUTH_IMAGE}
+
+
+                    echo ""
+                    echo "Auth-service image pushed successfully."
+
+
+                    echo ""
+                    echo "======================================"
+                    echo "Pushing user-service image"
+                    echo "======================================"
+
+                    docker push ${USER_IMAGE}
+
+
+                    echo ""
+                    echo "User-service image pushed successfully."
+
+
+                    echo ""
+                    echo "======================================"
+                    echo "Docker images pushed successfully."
+                    echo "======================================"
+                '''
+            }
+        }
+
+
+        // ==========================================================
+        // 14. STOP EXISTING CONTAINERS
+        // ==========================================================
+
+        stage('Stop Existing Containers') {
+
+            steps {
+
+                sh '''
+                    set -e
+
+                    echo "======================================"
+                    echo "Stopping auth-service"
+                    echo "======================================"
+
+                    if docker ps -a --format '{{.Names}}' | grep -q "^${AUTH_CONTAINER}$"; then
+
+                        docker stop ${AUTH_CONTAINER} || true
+
+                        docker rm ${AUTH_CONTAINER} || true
+
+                        echo "Old auth-service removed."
+
+                    else
+
+                        echo "No existing auth-service container found."
+                    fi
+
+
+                    echo ""
+                    echo "======================================"
+                    echo "Stopping user-service"
+                    echo "======================================"
+
+                    if docker ps -a --format '{{.Names}}' | grep -q "^${USER_CONTAINER}$"; then
+
+                        docker stop ${USER_CONTAINER} || true
+
+                        docker rm ${USER_CONTAINER} || true
+
+                        echo "Old user-service removed."
+
+                    else
+
+                        echo "No existing user-service container found."
+                    fi
+                '''
+            }
+        }
+
+
+        // ==========================================================
+        // 15. DEPLOY AUTH SERVICE
+        // ==========================================================
+
+        stage('Deploy Auth Service') {
+
+            steps {
+
+                withCredentials([
+
+                    usernamePassword(
+                        credentialsId: 'mysql-creds',
+                        usernameVariable: 'DB_USER',
+                        passwordVariable: 'DB_PASSWORD'
+                    ),
+
+                    string(
+                        credentialsId: 'jwt-access-secret',
+                        variable: 'JWT_ACCESS_SECRET'
+                    ),
+
+                    string(
+                        credentialsId: 'jwt-refresh-secret',
+                        variable: 'JWT_REFRESH_SECRET'
+                    )
+
+                ]) {
+
+                    sh '''
+                        set -e
+
+                        echo "======================================"
+                        echo "Deploying auth-service"
+                        echo "======================================"
+
+                        docker run -d \
+                            --name ${AUTH_CONTAINER} \
+                            --network ${DOCKER_NETWORK} \
+                            --restart unless-stopped \
+                            -p 7070:7070 \
+                            -e JWT_ACCESS_SECRET="${JWT_ACCESS_SECRET}" \
+                            -e JWT_REFRESH_SECRET="${JWT_REFRESH_SECRET}" \
+                            -e JWT_ISSUER="${JWT_ISSUER}" \
+                            -e JWT_ACCESS_EXPIRY_MINUTES="${JWT_ACCESS_EXPIRY_MINUTES}" \
+                            -e JWT_REFRESH_EXPIRY_DAYS="${JWT_REFRESH_EXPIRY_DAYS}" \
+                            -e HTTP_ADDR="${HTTP_ADDR}" \
+                            -e GIN_MODE="${GIN_MODE}" \
+                            -e ENABLE_PPROF="${ENABLE_PPROF}" \
+                            -e DB_HOST="${DB_HOST}" \
+                            -e DB_USER="${DB_USER}" \
+                            -e DB_PASSWORD="${DB_PASSWORD}" \
+                            -e DB_PORT="${DB_PORT}" \
+                            -e AUTH_DB_NAME="${AUTH_DB_NAME}" \
+                            -e KAFKA_BROKERS="${KAFKA_BROKERS}" \
+                            ${AUTH_IMAGE}
+
+
+                        echo "Auth-service container started."
+
+                        sleep 5
+
+                        echo ""
+                        echo "Auth-service status:"
+
+                        docker ps \
+                            --filter "name=${AUTH_CONTAINER}"
+                    '''
+                }
+            }
+        }
+
+
+        // ==========================================================
+        // 16. DEPLOY USER SERVICE
+        // ==========================================================
+
+        stage('Deploy User Service') {
+
+            steps {
+
+                withCredentials([
+
+                    usernamePassword(
+                        credentialsId: 'mysql-creds',
+                        usernameVariable: 'DB_USER',
+                        passwordVariable: 'DB_PASSWORD'
+                    )
+
+                ]) {
+
+                    sh '''
+                        set -e
+
+                        echo "======================================"
+                        echo "Deploying user-service"
+                        echo "======================================"
+
+                        docker run -d \
+                            --name ${USER_CONTAINER} \
+                            --network ${DOCKER_NETWORK} \
+                            --restart unless-stopped \
+                            -p 7071:7071 \
+                            -e HTTP_ADDR_USER_SERVICE="${HTTP_ADDR_USER_SERVICE}" \
+                            -e GIN_MODE="${GIN_MODE}" \
+                            -e ENABLE_PPROF="${ENABLE_PPROF}" \
+                            -e DB_HOST="${DB_HOST}" \
+                            -e DB_USER="${DB_USER}" \
+                            -e DB_PASSWORD="${DB_PASSWORD}" \
+                            -e DB_PORT="${DB_PORT}" \
+                            -e USER_DB_NAME="${USER_DB_NAME}" \
+                            -e KAFKA_BROKERS="${KAFKA_BROKERS}" \
+                            ${USER_IMAGE}
+
+
+                        echo "User-service container started."
+
+                        sleep 5
+
+                        echo ""
+                        echo "User-service status:"
+
+                        docker ps \
+                            --filter "name=${USER_CONTAINER}"
+                    '''
+                }
+            }
+        }
+
+
+        // ==========================================================
+        // 17. VERIFY DEPLOYMENT
+        // ==========================================================
+
+        stage('Verify Deployment') {
+
+            steps {
+
+                sh '''
+                    set -e
+
+                    echo "======================================"
+                    echo "Running Containers"
+                    echo "======================================"
+
+                    docker ps \
+                        --filter "name=${AUTH_CONTAINER}" \
+                        --filter "name=${USER_CONTAINER}"
+
+
+                    echo ""
+                    echo "======================================"
+                    echo "Auth Service Status"
+                    echo "======================================"
+
+                    if docker ps --format '{{.Names}}' | grep -q "^${AUTH_CONTAINER}$"; then
+
+                        echo "Auth-service is RUNNING."
+
+                    else
+
+                        echo "ERROR: Auth-service is NOT running."
+
+                        docker logs ${AUTH_CONTAINER} || true
+
+                        exit 1
+                    fi
+
+
+                    echo ""
+                    echo "======================================"
+                    echo "User Service Status"
+                    echo "======================================"
+
+                    if docker ps --format '{{.Names}}' | grep -q "^${USER_CONTAINER}$"; then
+
+                        echo "User-service is RUNNING."
+
+                    else
+
+                        echo "ERROR: User-service is NOT running."
+
+                        docker logs ${USER_CONTAINER} || true
+
+                        exit 1
+                    fi
+
+
+                    echo ""
+                    echo "======================================"
+                    echo "Auth Service Logs"
+                    echo "======================================"
+
+                    docker logs \
+                        --tail 30 \
+                        ${AUTH_CONTAINER}
+
+
+                    echo ""
+                    echo "======================================"
+                    echo "User Service Logs"
+                    echo "======================================"
+
+                    docker logs \
+                        --tail 30 \
+                        ${USER_CONTAINER}
+
+
+                    echo ""
+                    echo "======================================"
+                    echo "Deployment Verification Successful"
+                    echo "======================================"
+                '''
+            }
+        }
+    }
+
+
+    // ==========================================================
+    // POST ACTIONS
+    // ==========================================================
+
+    post {
+
+        success {
+
+            echo '''
+========================================
+ Jenkins Pipeline Successful
+========================================
+
+Build Number:
+${BUILD_NUMBER}
+
+Auth Image:
+${AUTH_IMAGE}
+
+User Image:
+${USER_IMAGE}
+
+Auth Container:
+${AUTH_CONTAINER}
+
+User Container:
+${USER_CONTAINER}
+
+Both services have been deployed successfully.
+
+========================================
+'''
+        }
+
+
+        failure {
+
+            echo '''
+========================================
+ Jenkins Pipeline FAILED
+========================================
+
+Build Number:
+${BUILD_NUMBER}
+
+Please check the Jenkins console output.
+
+========================================
+'''
+        }
+
+
+        always {
+
+            sh '''
+                echo "Cleaning Docker authentication..."
+
+                docker logout || true
+
+                echo "Pipeline execution completed."
+            '''
+        }
+    }
+}

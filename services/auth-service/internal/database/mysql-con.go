@@ -1,7 +1,9 @@
 package database
 
 import (
+	"fmt"
 	"log"
+	"os"
 
 	"github.com/go-ecommerce-application/services/auth-service/internal/domain/models"
 	"gorm.io/driver/mysql"
@@ -12,7 +14,16 @@ var DB *gorm.DB
 var err error
 
 func ConnectMySQL() {
-	url := "root:mysql123@tcp(localhost:3306)/auth_service"
+	// if err := godotenv.Load(); err != nil {
+	// 	log.Fatal("Error loading .env file")
+	// }
+	dbHost := os.Getenv("DB_HOST")
+	dbUser := os.Getenv("DB_USER")
+	dbPassword := os.Getenv("DB_PASSWORD")
+	dbPort := os.Getenv("DB_PORT")
+	authDBName := os.Getenv("AUTH_DB_NAME")
+
+	url := fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?parseTime=true", dbUser, dbPassword, dbHost, dbPort, authDBName)
 	DB, err = gorm.Open(mysql.Open(url), &gorm.Config{})
 	if err != nil {
 		log.Println("Error while getting connection :", err)
